@@ -7,56 +7,89 @@ import (
 )
 
 /*
- Field describes the current state of things,
- such as players and the location of the ball.
- */
-type Field struct {
-    h, w int
+Game describes the current state of things.
+*/
+type Game struct {
+    f *Field
     p1, p2 *Player
     b *Ball
     moveballchan chan bool
     scorechan chan bool
     done chan bool
 }
+/*
+ Field describes the current state of things,
+ such as players and the location of the ball.
+ */
+type Field struct {
+    h, w int
+}
 
 /*
 Function that controls the ball moving in a certain time interval
 and collisions.
 */
-func (f *Field) MoveBall() {
+func (g *Game) MoveBall() {
     for {
-        f.b.Move(f.moveballchan)
+        g.b.Move(g.moveballchan)
         // If this is a score, increment the other player's score.
-        if f.p1.IsThisScore(f.b) {
-            f.p2.score++
-                f.b.SetAtCenter(f, 2)
-                f.scorechan <- true
-                if f.p2.score == 7 {
-                    f.done <- true
+        if g.p1.IsThisScore(g.b) {
+            g.p2.score++
+                g.b.SetAtCenter(g.f, 2)
+                g.scorechan <- true
+                if g.p2.score == 7 {
+                    g.done <- true
                 }
                 return
-        } else if f.p2.IsThisScore(f.b) {
-            f.p1.score++
-                f.b.SetAtCenter(f, 1)
-                f.scorechan <- true
-                if f.p1.score == 7 {
-                    f.done <- true
+        } else if g.p2.IsThisScore(g.b) {
+            g.p1.score++
+                g.b.SetAtCenter(g.f, 1)
+                g.scorechan <- true
+                if g.p1.score == 7 {
+                    g.done <- true
                 }
                 return
         }
         // if after this move the ball is at a paddle,
         // its next move should be to deflect off in the opposite direction.
-        if f.p1.IsThisDeflection(f.b) || f.p2.IsThisDeflection(f.b) {
-            f.b.HitPaddle()
+        if g.p1.IsThisDeflection(g.b) || g.p2.IsThisDeflection(g.b) {
+            g.b.HitPaddle()
         }
         // if after this move the ball is at the wall,
         // its next move should be to deflect off in the opposite direction.
-        if f.b.y == f.h - 2 || f.b.y == 1 {
-            f.b.HitWall()
+        if g.b.y == g.f.h - 2 || g.b.y == 1 {
+            g.b.HitWall()
         }
         // Finally, sleep it a certain amount of time.
-        time.Sleep(time.Second / time.Duration(f.b.speed))
+        time.Sleep(time.Second / time.Duration(g.b.speed))
     }
+}
+
+/*
+Moving the paddle up and down for a given player.
+n is the player number (1 or two).
+d is the delta the paddle is to be moved.
+*/
+func (g *Game) MovePlayer(n, d int) bool {
+    var p *Player
+    // Determine the player
+    if n == 1 {
+        p = g.p1
+    } else {
+        p = g.p2
+    }
+    // Determine if the delta to be moved is within field height.
+    // If going up
+    if d < 0 {
+        if d + p.t > 0 {
+            return p.Move(d)
+        }
+    } else {
+        if p.b + d < g.f.h - 1 {
+            return p.Move(d)
+        }
+    }
+    return false
 }
 
 
@@ -97,22 +130,10 @@ func InitializePlayer(h, w, number int, movepaddlechan chan int) (p *Player) {
 d is delta that the paddle is to move.
 Player's paddle cannot move beyond the walls of the field.
 */
-func (p *Player) Move(d int, f *Field) bool {
-    // If going up
-    if d < 0 {
-        if d + p.t > 0 {
-            p.t += d
-            p.b += d
-            return true
-        }
-    } else {
-        if p.b + d < f.h - 1 {
-            p.t += d
-            p.b += d
-            return true
-        }
-    }
-    return false
+func (p *Player) Move(d int) bool {
+    p.t += d
+    p.b += d
+    return true
 }
 
 /*
@@ -179,7 +200,8 @@ func (b *Ball) SetAtCenter(f *Field, p int) {
     } else {
         d = 1
     }
-    b.y, b.x, b.my, b.mx = int(f.h/2), int(f.w/2), d, d
+    // Reset ball speed, directions and angle to originals
+    b.y, b.x, b.my, b.mx, b.speed, b.hits = int(f.h/2), int(f.w/2), d, d, 10, 0
 }
 
 /*
@@ -190,35 +212,35 @@ var GameGraphics = map[string]byte{"wall": '#', "paddle": '+', "ball": 'O'}
 /*
 Initial Drawing of the game field + paddle + ball
 */
-func InitialDrawGame(f *Field, stdscr *goncurses.Window) {
+func InitialDrawGame(g *Game, stdscr *goncurses.Window) {
     // Field drawing
-    for i := 0; i < f.h; i++ {
+    for i := 0; i < g.f.h; i++ {
         stdscr.MovePrintf(i, 0, "%c", GameGraphics["wall"])
-        for ii := 0; ii < f.w; ii++ {
+        for ii := 0; ii < g.f.w; ii++ {
             // If this is the top or bottom, draw a wall
-            if i == 0 || i == f.h - 1 {
+            if i == 0 || i == g.f.h - 1 {
                 stdscr.MovePrintf(i, ii, "%c", GameGraphics["wall"])
-            } else if i > 0 && i < f.h - 1 {
+            } else if i > 0 && i < g.f.h - 1 {
                 // If this is the center of the screen,
                 // display the score string. Else, draw the game.
                 // If this is the second column
-                if ii == f.p1.c {
+                if ii == g.p1.c {
                     // Could be where player 1's paddle is
-                    if i >= f.p1.t && i <= f.p1.b {
+                    if i >= g.p1.t && i <= g.p1.b {
                         stdscr.MovePrintf(i, ii, "%c", GameGraphics["paddle"])
                     }
-                } else if ii == f.p2.c {
-                    if i >= f.p2.t && i <= f.p2.b {
+                } else if ii == g.p2.c {
+                    if i >= g.p2.t && i <= g.p2.b {
                         stdscr.MovePrintf(i, ii, "%c", GameGraphics["paddle"])
                     }
                 } else {
-                    if f.b.x == ii && f.b.y == i {
+                    if g.b.x == ii && g.b.y == i {
                         stdscr.MovePrintf(i, ii, "%c", GameGraphics["ball"])
                     }
                 }
             }
         }
-        stdscr.MovePrintf(i, f.w, "%c", GameGraphics["wall"])
+        stdscr.MovePrintf(i, g.f.w, "%c", GameGraphics["wall"])
     }
     stdscr.Print("\n")
     stdscr.Println("Player 1: 0")
@@ -229,32 +251,28 @@ func InitialDrawGame(f *Field, stdscr *goncurses.Window) {
 /*
 Gets user input the goncurses way
 */
-func TakeUserInput(f *Field, stdscr *goncurses.Window) {
+func TakeUserInput(g *Game, stdscr *goncurses.Window) {
     for {
         ch := stdscr.GetChar()
         switch byte(ch) {
              case 'w':
-                move := f.p1.Move(-1, f)
-                if move {
-                    f.p1.movepaddlechan <- -1
+                if g.MovePlayer(1, -1) {
+                    g.p1.movepaddlechan <- -1
                 }
              case 's':
-                move := f.p1.Move(1, f)
-                if move {
-                    f.p1.movepaddlechan <- 1
+                if g.MovePlayer(1, 1) {
+                    g.p1.movepaddlechan <- 1
                 }
              case 'o':
-                move := f.p2.Move(-1, f)
-                if move {
-                    f.p2.movepaddlechan <- -1
+                if g.MovePlayer(2, -1) {
+                    g.p2.movepaddlechan <- -1
                 }
              case 'l':
-                move := f.p2.Move(1, f)
-                if move {
-                    f.p2.movepaddlechan <- 1
+                if g.MovePlayer(2, 1) {
+                    g.p2.movepaddlechan <- 1
                 }
              case 'q':
-                 f.done <- true
+                 g.done <- true
          }
     }
 }
@@ -263,19 +281,19 @@ func TakeUserInput(f *Field, stdscr *goncurses.Window) {
 Runs as a go routine waiting for signals from other functions.
 Passes off the the appropriate draw function when data received on a chan.
 */
-func DrawAction(f *Field, stdscr *goncurses.Window) {
+func DrawAction(g *Game, stdscr *goncurses.Window) {
     var delta int
     for {
         select {
-            case delta = <-f.p1.movepaddlechan:
-                DrawPaddleMove(stdscr, f.p1, delta)
-            case delta = <-f.p2.movepaddlechan:
-                DrawPaddleMove(stdscr, f.p2, delta)
-            case <-f.moveballchan:
-                DrawBallMove(stdscr, f.b)
-            case <- f.scorechan:
-                DrawScores(stdscr, f)
-                go f.MoveBall()
+            case delta = <-g.p1.movepaddlechan:
+                DrawPaddleMove(stdscr, g.p1, delta)
+            case delta = <-g.p2.movepaddlechan:
+                DrawPaddleMove(stdscr, g.p2, delta)
+            case <-g.moveballchan:
+                DrawBallMove(stdscr, g.b)
+            case <- g.scorechan:
+                DrawScores(stdscr, g)
+                go g.MoveBall()
         }
         stdscr.Refresh()
     }
@@ -305,9 +323,9 @@ func DrawPaddleMove(stdscr *goncurses.Window, p *Player, d int) {
     return
 }
 
-func DrawScores(stdscr *goncurses.Window, f *Field) {
-    stdscr.MovePrint(f.h, 10, f.p1.score)
-    stdscr.MovePrint(f.h+1, 10, f.p2.score)
+func DrawScores(stdscr *goncurses.Window, g *Game) {
+    stdscr.MovePrint(g.f.h, 10, g.p1.score)
+    stdscr.MovePrint(g.f.h+1, 10, g.p2.score)
 }
 
 func main() {
@@ -331,11 +349,12 @@ func main() {
     moveballchan   := make(chan bool)
     scorechan      := make(chan bool)
     done           := make(chan bool)
-    f := &Field{h, w, p1, p2, b, moveballchan, scorechan, done}
-    InitialDrawGame(f, stdscr)
-    go f.MoveBall()
-    go TakeUserInput(f, stdscr)
-    go DrawAction(f, stdscr)
+    f := &Field{h, w}
+    g := &Game{f, p1, p2, b, moveballchan, scorechan, done}
+    InitialDrawGame(g, stdscr)
+    go g.MoveBall()
+    go TakeUserInput(g, stdscr)
+    go DrawAction(g, stdscr)
     <-done
     stdscr.Clear()
     stdscr.Println("Game over!")
