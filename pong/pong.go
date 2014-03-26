@@ -62,6 +62,7 @@ func (f *Field) MoveBall() {
 
 /*
 A player's paddle is defined by the top and height.
+Bottom is provided as a convenience.
 Top is where the paddle is located in the field,
 and height is the height of the paddle.
 A paddle cannot break the top and bottom walls of the field.
@@ -226,7 +227,7 @@ func InitialDrawGame(f *Field, stdscr *goncurses.Window) {
 }
 
 /*
-Gets user input the termbox way
+Gets user input the goncurses way
 */
 func TakeUserInput(f *Field, stdscr *goncurses.Window) {
     for {
@@ -258,6 +259,10 @@ func TakeUserInput(f *Field, stdscr *goncurses.Window) {
     }
 }
 
+/*
+Runs as a go routine waiting for signals from other functions.
+Passes off the the appropriate draw function when data received on a chan.
+*/
 func DrawAction(f *Field, stdscr *goncurses.Window) {
     var delta int
     for {
@@ -297,6 +302,7 @@ func DrawPaddleMove(stdscr *goncurses.Window, p *Player, d int) {
         stdscr.MovePrint(p.t-1, p.c, " ")
         stdscr.MovePrintf(p.b, p.c, "%c", GameGraphics["paddle"])
     }
+    return
 }
 
 func DrawScores(stdscr *goncurses.Window, f *Field) {
