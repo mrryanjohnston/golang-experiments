@@ -1,5 +1,30 @@
 # Pong
+
 Classic game implemented in go.
+
+## Installation
+
+You'll need `pkg-config` and `ncurses` first. Read
+[this](https://github.com/rthornton128/goncurses/wiki)
+to learn how to do it.
+
+Then, do:
+
+```
+go get github.com/rthornton128/goncurses
+```
+
+Then:
+
+```
+go build pong.go
+```
+
+Finally:
+
+```
+./pong
+```
 
 ## Controls
 
